@@ -13,19 +13,15 @@ import { eq, and, lt } from "drizzle-orm";
 
 export function startScheduler() {
   cron.schedule("* * * * *", () => {
-    try {
-      createPendingDoses();
-    } catch (err) {
-      console.error("Dose reminder job failed:", err);
-    }
+    createPendingDoses().catch((err) =>
+      console.error("Dose reminder job failed:", err)
+    );
   });
 
   cron.schedule("*/15 * * * *", () => {
-    try {
-      sweepMissedDoses();
-    } catch (err) {
-      console.error("Missed dose sweep failed:", err);
-    }
+    sweepMissedDoses().catch((err) =>
+      console.error("Missed dose sweep failed:", err)
+    );
   });
 
   console.log("Scheduler started");
@@ -35,12 +31,12 @@ export function startScheduler() {
  * Finds schedules matching the current HH:MM, creates a pending dose_log
  * for each (if one doesn't already exist for today).
  */
-function createPendingDoses() {
+async function createPendingDoses() {
   const now = new Date();
   const currentTime = now.toTimeString().slice(0, 5);
   const todayDate = now.toISOString().split("T")[0];
 
-  const activeSchedules = db
+  const activeSchedules = await db
     .select({
       schedule: schedules,
       med: medications,
@@ -53,14 +49,13 @@ function createPendingDoses() {
         eq(schedules.enabled, true),
         eq(medications.active, true)
       )
-    )
-    .all();
+    );
 
   for (const { schedule, med } of activeSchedules) {
     const scheduledAt = `${todayDate}T${schedule.timeOfDay}:00`;
 
     // Prevent duplicate dose logs for the same schedule + date
-    const existing = db
+    const [existing] = await db
       .select()
       .from(doseLogs)
       .where(
@@ -68,34 +63,31 @@ function createPendingDoses() {
           eq(doseLogs.scheduleId, schedule.id),
           eq(doseLogs.scheduledAt, scheduledAt)
         )
-      )
-      .get();
+      );
 
     if (existing) continue;
 
-    db.insert(doseLogs)
-      .values({
-        medicationId: med.id,
-        scheduleId: schedule.id,
-        status: "pending",
-        scheduledAt,
-      })
-      .run();
+    await db.insert(doseLogs).values({
+      medicationId: med.id,
+      scheduleId: schedule.id,
+      status: "pending",
+      scheduledAt,
+    });
   }
 }
 
 // Flip any "pending" dose logs older than 2 hours to "missed" (no pill decrement)
-function sweepMissedDoses() {
+async function sweepMissedDoses() {
   const twoHoursAgo = new Date();
   twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
 
-  db.update(doseLogs)
+  await db
+    .update(doseLogs)
     .set({ status: "missed" })
     .where(
       and(
         eq(doseLogs.status, "pending"),
         lt(doseLogs.scheduledAt, twoHoursAgo.toISOString())
       )
-    )
-    .run();
+    );
 }

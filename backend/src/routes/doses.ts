@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { doseLogs, medications, schedules } from "../db/schema.js";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { authMiddleware, AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -15,10 +15,10 @@ router.use(authMiddleware);
 
 // POST /api/doses/:logId/confirm - mark a pending dose as taken
 // Atomic: updates dose status AND decrements pill count in one transaction
-router.post("/:logId/confirm", (req: AuthRequest, res) => {
+router.post("/:logId/confirm", async (req: AuthRequest, res) => {
   const logId = Number(req.params.logId);
 
-  const log = db
+  const [log] = await db
     .select({
       log: doseLogs,
       med: medications,
@@ -27,8 +27,7 @@ router.post("/:logId/confirm", (req: AuthRequest, res) => {
     .innerJoin(medications, eq(doseLogs.medicationId, medications.id))
     .where(
       and(eq(doseLogs.id, logId), eq(medications.userId, req.userId!))
-    )
-    .get();
+    );
 
   if (!log) {
     res.status(404).json({ error: "Dose log not found" });
@@ -50,23 +49,22 @@ router.post("/:logId/confirm", (req: AuthRequest, res) => {
   const daysLeft = log.med.frequency > 0 ? newRemaining / log.med.frequency : 0;
 
   // Both updates succeed or neither does
-  db.transaction(() => {
-    db.update(doseLogs)
+  await db.transaction(async (tx) => {
+    await tx
+      .update(doseLogs)
       .set({ status: "taken", takenAt: now })
-      .where(eq(doseLogs.id, logId))
-      .run();
+      .where(eq(doseLogs.id, logId));
 
-    db.update(medications)
+    await tx
+      .update(medications)
       .set({ remainingPillCount: newRemaining })
-      .where(eq(medications.id, log.med.id))
-      .run();
+      .where(eq(medications.id, log.med.id));
   });
 
-  const updatedLog = db
+  const [updatedLog] = await db
     .select()
     .from(doseLogs)
-    .where(eq(doseLogs.id, logId))
-    .get();
+    .where(eq(doseLogs.id, logId));
 
   res.json({
     ...updatedLog,
@@ -76,12 +74,12 @@ router.post("/:logId/confirm", (req: AuthRequest, res) => {
 });
 
 // GET /api/doses/today - all dose logs for today, joined with medication and schedule info
-router.get("/today", (req: AuthRequest, res) => {
+router.get("/today", async (req: AuthRequest, res) => {
   const today = new Date().toISOString().split("T")[0];
   const startOfDay = `${today}T00:00:00`;
   const endOfDay = `${today}T23:59:59`;
 
-  const logs = db
+  const logs = await db
     .select({
       log: doseLogs,
       medicationName: medications.name,
@@ -99,8 +97,7 @@ router.get("/today", (req: AuthRequest, res) => {
         lte(doseLogs.scheduledAt, endOfDay)
       )
     )
-    .orderBy(doseLogs.scheduledAt)
-    .all();
+    .orderBy(doseLogs.scheduledAt);
 
   const result = logs.map((row) => ({
     ...row.log,
@@ -114,20 +111,20 @@ router.get("/today", (req: AuthRequest, res) => {
 });
 
 // GET /api/doses/history - filterable dose log history (default: last 30 days)
-router.get("/history", (req: AuthRequest, res) => {
+router.get("/history", async (req: AuthRequest, res) => {
   const { medId, from, to } = req.query;
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  // Date strings must match the format stored in SQLite (no trailing Z)
+  // Date strings must match the format stored in the database (no trailing Z)
   const toDateStr = (d: Date) => d.toISOString().split("T")[0];
   const startDate =
     typeof from === "string" ? from : `${toDateStr(thirtyDaysAgo)}T00:00:00`;
   const endDate =
     typeof to === "string" ? to : `${toDateStr(new Date())}T23:59:59`;
 
-  let query = db
+  const logs = await db
     .select({
       log: doseLogs,
       medicationName: medications.name,
@@ -148,8 +145,6 @@ router.get("/history", (req: AuthRequest, res) => {
     .orderBy(desc(doseLogs.scheduledAt))
     .limit(200);
 
-  const logs = query.all();
-
   const result = logs.map((row) => ({
     ...row.log,
     medicationName: row.medicationName,
@@ -161,8 +156,8 @@ router.get("/history", (req: AuthRequest, res) => {
 });
 
 // GET /api/doses/refills - medications where daysLeft <= 5 (need pharmacy refill)
-router.get("/refills", (req: AuthRequest, res) => {
-  const meds = db
+router.get("/refills", async (req: AuthRequest, res) => {
+  const meds = await db
     .select()
     .from(medications)
     .where(
@@ -170,8 +165,7 @@ router.get("/refills", (req: AuthRequest, res) => {
         eq(medications.userId, req.userId!),
         eq(medications.active, true)
       )
-    )
-    .all();
+    );
 
   const needsRefill = meds.filter((med) => {
     const daysLeft = med.frequency > 0 ? med.remainingPillCount / med.frequency : Infinity;

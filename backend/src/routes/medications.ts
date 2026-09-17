@@ -41,8 +41,8 @@ const refillSchema = z.object({
 });
 
 // GET /api/medications - list all active medications for the user
-router.get("/", (req: AuthRequest, res) => {
-  const meds = db
+router.get("/", async (req: AuthRequest, res) => {
+  const meds = await db
     .select()
     .from(medications)
     .where(
@@ -50,14 +50,13 @@ router.get("/", (req: AuthRequest, res) => {
         eq(medications.userId, req.userId!),
         eq(medications.active, true)
       )
-    )
-    .all();
+    );
   res.json(meds);
 });
 
 // GET /api/medications/:id - medication detail with schedules and recent dose logs
-router.get("/:id", (req: AuthRequest, res) => {
-  const med = db
+router.get("/:id", async (req: AuthRequest, res) => {
+  const [med] = await db
     .select()
     .from(medications)
     .where(
@@ -65,33 +64,30 @@ router.get("/:id", (req: AuthRequest, res) => {
         eq(medications.id, Number(req.params.id)),
         eq(medications.userId, req.userId!)
       )
-    )
-    .get();
+    );
 
   if (!med) {
     res.status(404).json({ error: "Medication not found" });
     return;
   }
 
-  const medSchedules = db
+  const medSchedules = await db
     .select()
     .from(schedules)
-    .where(eq(schedules.medicationId, med.id))
-    .all();
+    .where(eq(schedules.medicationId, med.id));
 
-  const recentLogs = db
+  const recentLogs = await db
     .select()
     .from(doseLogs)
     .where(eq(doseLogs.medicationId, med.id))
     .orderBy(desc(doseLogs.scheduledAt))
-    .limit(50)
-    .all();
+    .limit(50);
 
   res.json({ ...med, schedules: medSchedules, recentLogs });
 });
 
 // POST /api/medications - create a medication and its schedule rows
-router.post("/", (req: AuthRequest, res) => {
+router.post("/", async (req: AuthRequest, res) => {
   const parsed = createMedSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -102,7 +98,7 @@ router.post("/", (req: AuthRequest, res) => {
     parsed.data;
 
   // remainingPillCount starts equal to the total (full bottle)
-  const med = db
+  const [med] = await db
     .insert(medications)
     .values({
       userId: req.userId!,
@@ -112,29 +108,29 @@ router.post("/", (req: AuthRequest, res) => {
       totalPillCount,
       remainingPillCount: totalPillCount,
     })
-    .returning()
-    .get();
+    .returning();
 
-  const createdSchedules = scheduleList.map((s) =>
-    db
+  const createdSchedules = [];
+  for (const s of scheduleList) {
+    const [row] = await db
       .insert(schedules)
       .values({ medicationId: med.id, timeOfDay: s.timeOfDay, label: s.label })
-      .returning()
-      .get()
-  );
+      .returning();
+    createdSchedules.push(row);
+  }
 
   res.status(201).json({ ...med, schedules: createdSchedules });
 });
 
 // PUT /api/medications/:id - update name, dosage, or active status
-router.put("/:id", (req: AuthRequest, res) => {
+router.put("/:id", async (req: AuthRequest, res) => {
   const parsed = updateMedSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(medications)
     .where(
@@ -142,27 +138,25 @@ router.put("/:id", (req: AuthRequest, res) => {
         eq(medications.id, Number(req.params.id)),
         eq(medications.userId, req.userId!)
       )
-    )
-    .get();
+    );
 
   if (!existing) {
     res.status(404).json({ error: "Medication not found" });
     return;
   }
 
-  const updated = db
+  const [updated] = await db
     .update(medications)
     .set(parsed.data)
     .where(eq(medications.id, existing.id))
-    .returning()
-    .get();
+    .returning();
 
   res.json(updated);
 });
 
 // DELETE /api/medications/:id - soft-delete by setting active=false
-router.delete("/:id", (req: AuthRequest, res) => {
-  const existing = db
+router.delete("/:id", async (req: AuthRequest, res) => {
+  const [existing] = await db
     .select()
     .from(medications)
     .where(
@@ -170,31 +164,30 @@ router.delete("/:id", (req: AuthRequest, res) => {
         eq(medications.id, Number(req.params.id)),
         eq(medications.userId, req.userId!)
       )
-    )
-    .get();
+    );
 
   if (!existing) {
     res.status(404).json({ error: "Medication not found" });
     return;
   }
 
-  db.update(medications)
+  await db
+    .update(medications)
     .set({ active: false })
-    .where(eq(medications.id, existing.id))
-    .run();
+    .where(eq(medications.id, existing.id));
 
   res.status(204).send();
 });
 
 // POST /api/medications/:id/refill - reset pill count after pharmacy refill
-router.post("/:id/refill", (req: AuthRequest, res) => {
+router.post("/:id/refill", async (req: AuthRequest, res) => {
   const parsed = refillSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(medications)
     .where(
@@ -202,23 +195,21 @@ router.post("/:id/refill", (req: AuthRequest, res) => {
         eq(medications.id, Number(req.params.id)),
         eq(medications.userId, req.userId!)
       )
-    )
-    .get();
+    );
 
   if (!existing) {
     res.status(404).json({ error: "Medication not found" });
     return;
   }
 
-  const updated = db
+  const [updated] = await db
     .update(medications)
     .set({
       remainingPillCount: parsed.data.newCount,
       totalPillCount: parsed.data.newCount,
     })
     .where(eq(medications.id, existing.id))
-    .returning()
-    .get();
+    .returning();
 
   res.json(updated);
 });

@@ -34,22 +34,20 @@ router.post("/register", async (req, res) => {
 
   const { email, name, password } = parsed.data;
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(users)
-    .where(eq(users.email, email))
-    .get();
+    .where(eq(users.email, email));
   if (existing) {
     res.status(409).json({ error: "Email already registered" });
     return;
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const result = db
+  const [result] = await db
     .insert(users)
     .values({ email, name, passwordHash })
-    .returning()
-    .get();
+    .returning();
 
   const token = signToken(result.id);
   res.status(201).json({
@@ -68,7 +66,7 @@ router.post("/login", async (req, res) => {
 
   const { email, password } = parsed.data;
 
-  const user = db.select().from(users).where(eq(users.email, email)).get();
+  const [user] = await db.select().from(users).where(eq(users.email, email));
   if (!user) {
     res.status(401).json({ error: "Invalid email or password" });
     return;

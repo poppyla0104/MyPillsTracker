@@ -12,9 +12,11 @@ A full-stack medication reminder app that helps users track daily medications, c
 
 ## Tech Stack
 
-**Backend:** Node.js, Express, TypeScript, SQLite (Drizzle ORM + better-sqlite3), JWT auth, Zod validation, node-cron
+**Backend:** Node.js, Express, TypeScript, PostgreSQL (Drizzle ORM), JWT auth, Zod validation, node-cron
 
 **Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router
+
+**Infrastructure:** AWS CloudFormation (EC2 + RDS PostgreSQL + S3 + CloudFront)
 
 ## Project Structure
 
@@ -22,7 +24,7 @@ A full-stack medication reminder app that helps users track daily medications, c
 my-pills-tracker/
 ├── backend/src/
 │   ├── db/schema.ts           # Table definitions (users, medications, schedules, dose_logs)
-│   ├── db/index.ts            # SQLite connection
+│   ├── db/index.ts            # PostgreSQL connection pool
 │   ├── routes/auth.ts         # Register + login
 │   ├── routes/medications.ts  # CRUD + refill
 │   ├── routes/doses.ts        # Confirm dose, today's schedule, history, refills
@@ -35,32 +37,94 @@ my-pills-tracker/
 │   ├── components/Layout.tsx  # App shell with nav
 │   ├── pages/                 # Dashboard, AddMed, MedDetail, History, Login, Register
 │   └── App.tsx                # Router config
+├── infra/
+│   ├── template.yaml          # CloudFormation template (VPC, EC2, RDS, S3, CloudFront)
+│   ├── deploy.sh              # Deploy infrastructure
+│   └── deploy-frontend.sh     # Build + upload frontend to S3
 └── README.md
 ```
 
 ## Prerequisites
 
-- **Node.js >= 22** (required by better-sqlite3)
+- **Node.js >= 22**
+- **PostgreSQL** (local for dev, RDS for production)
 - npm
 
-## Getting Started
+## Local Development
+
+### 1. Set up PostgreSQL
+
+Create a local database:
+```bash
+createdb medreminder
+```
+
+Or set `DATABASE_URL` to point to your PostgreSQL instance:
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/medreminder"
+```
+
+### 2. Install dependencies
 
 ```bash
-# Install dependencies
 cd backend && npm install
 cd ../frontend && npm install
+```
 
-# Set up the database
-cd ../backend && npx drizzle-kit push
+### 3. Run database migrations
 
-# Start the backend (port 3001)
-npx tsx src/index.ts
+```bash
+cd backend && npx drizzle-kit push
+```
 
-# In another terminal, start the frontend (port 5173)
+### 4. Start the app
+
+```bash
+# Terminal 1: backend (port 3001)
+cd backend && npx tsx src/index.ts
+
+# Terminal 2: frontend (port 5173)
 cd frontend && npm run dev
 ```
 
 Open `http://localhost:5173`, register an account, and add your first medication.
+
+## AWS Deployment
+
+The `infra/` directory contains a CloudFormation template that provisions:
+
+| Resource | Type | Free Tier |
+|----------|------|-----------|
+| EC2 | t2.micro | 750 hrs/mo for 12 months |
+| RDS PostgreSQL | db.t3.micro | 750 hrs/mo for 12 months |
+| S3 | Frontend hosting | 5 GB free |
+| CloudFront | CDN + HTTPS | 1M requests/mo free |
+
+### Deploy
+
+1. **Create an EC2 key pair** in the AWS console (for SSH access)
+
+2. **Deploy the stack:**
+```bash
+cd infra
+./deploy.sh <key-pair-name> <db-password> <jwt-secret>
+```
+
+3. **Deploy the frontend:**
+```bash
+./deploy-frontend.sh
+```
+
+The script outputs the CloudFront URL, EC2 IP, and RDS endpoint.
+
+### Architecture
+
+```
+Users -> CloudFront -> S3 (React frontend)
+                    -> EC2:3001 (Express API) -> RDS PostgreSQL
+```
+
+CloudFront serves the React build from S3 and proxies `/api/*` requests to the EC2 backend. RDS sits in a private subnet, accessible only from EC2.
 
 ## API Endpoints
 
@@ -83,7 +147,7 @@ Open `http://localhost:5173`, register an account, and add your first medication
 
 1. **Scheduler creates pending doses** - Every minute, the cron job checks if any schedule's `timeOfDay` matches now. If so, it creates a `pending` dose log.
 
-2. **User confirms** - The user clicks "Mark as Taken" on the dashboard. An atomic SQLite transaction sets the log to `taken` and decrements `remainingPillCount`.
+2. **User confirms** - The user clicks "Mark as Taken" on the dashboard. An atomic PostgreSQL transaction sets the log to `taken` and decrements `remainingPillCount`.
 
 3. **Missed dose sweep** - Every 15 minutes, pending doses older than 2 hours are marked `missed`. No pill decrement.
 
@@ -94,6 +158,7 @@ Open `http://localhost:5173`, register an account, and add your first medication
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3001` | Backend server port |
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/medreminder` | PostgreSQL connection string |
 | `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing secret |
 | `FRONTEND_URL` | `http://localhost:5173` | Frontend origin for CORS |
 

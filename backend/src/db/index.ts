@@ -1,20 +1,16 @@
 /**
- * SQLite database connection.
- * Uses WAL journal mode for better concurrent read performance
- * and enforces foreign key constraints at the connection level.
+ * PostgreSQL database connection using node-postgres connection pool.
+ * Reads the connection string from DATABASE_URL env var.
  */
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import * as schema from "./schema.js";
-import path from "path";
 
-const dbPath = path.join(
-  import.meta.dirname ?? __dirname,
-  "../../data/med-reminder.db"
-);
-const sqlite = new Database(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+const pool = new pg.Pool({
+  connectionString:
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5432/medreminder",
+});
 
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(pool, { schema });

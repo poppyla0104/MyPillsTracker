@@ -1,5 +1,5 @@
 /**
- * Database schema definitions using Drizzle ORM.
+ * Database schema definitions using Drizzle ORM (PostgreSQL).
  *
  * Four tables model the medication tracking domain:
  * - users: account info and per-user refill threshold settings
@@ -8,24 +8,21 @@
  * - dose_logs: audit trail of every scheduled dose (pending -> taken/missed)
  */
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 
-export const users = sqliteTable("users", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
   // How many days before running out to trigger a refill reminder
   refillThresholdDays: integer("refill_threshold_days").notNull().default(5),
   timezone: text("timezone").notNull().default("America/Denver"),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const medications = sqliteTable("medications", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const medications = pgTable("medications", {
+  id: serial("id").primaryKey(),
   userId: integer("user_id")
     .notNull()
     .references(() => users.id),
@@ -34,24 +31,22 @@ export const medications = sqliteTable("medications", {
   frequency: integer("frequency").notNull(), // doses per day
   totalPillCount: integer("total_pill_count").notNull(), // original bottle count
   remainingPillCount: integer("remaining_pill_count").notNull(), // decremented on each confirmed dose
-  active: integer("active", { mode: "boolean" }).notNull().default(true), // soft-delete flag
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  active: boolean("active").notNull().default(true), // soft-delete flag
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /**
  * One row per scheduled time for a medication.
  * A medication taken 3x/day has 3 schedule rows (e.g. 08:00, 14:00, 20:00).
  */
-export const schedules = sqliteTable("schedules", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const schedules = pgTable("schedules", {
+  id: serial("id").primaryKey(),
   medicationId: integer("medication_id")
     .notNull()
     .references(() => medications.id),
   timeOfDay: text("time_of_day").notNull(), // "HH:MM" in 24h format
   label: text("label").notNull(), // human-readable: "morning", "evening", "bedtime"
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  enabled: boolean("enabled").notNull().default(true),
 });
 
 /**
@@ -60,8 +55,8 @@ export const schedules = sqliteTable("schedules", {
  * User confirmation flips it to "taken" and decrements the pill count.
  * A sweep job flips unclaimed "pending" rows to "missed" after 2 hours.
  */
-export const doseLogs = sqliteTable("dose_logs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const doseLogs = pgTable("dose_logs", {
+  id: serial("id").primaryKey(),
   medicationId: integer("medication_id")
     .notNull()
     .references(() => medications.id),
@@ -71,9 +66,8 @@ export const doseLogs = sqliteTable("dose_logs", {
   status: text("status", { enum: ["pending", "taken", "missed"] })
     .notNull()
     .default("pending"),
-  scheduledAt: text("scheduled_at").notNull(), // ISO datetime when the dose was due
-  takenAt: text("taken_at"), // null until user confirms; set to ISO datetime on confirmation
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  // Stored as text ("2026-09-17T08:00:00") for straightforward string comparison in queries
+  scheduledAt: text("scheduled_at").notNull(),
+  takenAt: text("taken_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
