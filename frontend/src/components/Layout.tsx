@@ -1,3 +1,8 @@
+/**
+ * App shell layout with header navigation, user info, and sign-out.
+ * Wraps all authenticated pages via React Router's <Outlet />.
+ */
+
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 

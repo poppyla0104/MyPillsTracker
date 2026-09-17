@@ -1,3 +1,9 @@
+/**
+ * SQLite database connection.
+ * Uses WAL journal mode for better concurrent read performance
+ * and enforces foreign key constraints at the connection level.
+ */
+
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";

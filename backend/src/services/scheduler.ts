@@ -1,3 +1,12 @@
+/**
+ * Cron scheduler for automated dose management.
+ *
+ * Three scheduled jobs run in the background:
+ * 1. Every minute: create "pending" dose logs when a schedule's time arrives, send reminder emails
+ * 2. Every 15 minutes: sweep pending doses older than 2 hours to "missed" status
+ * 3. Daily at 9 AM: check pill counts and send refill reminders when running low
+ */
+
 import cron from "node-cron";
 import { db } from "../db/index.js";
 import { doseLogs, medications, schedules, users } from "../db/schema.js";
@@ -37,6 +46,10 @@ export function startScheduler() {
   console.log("Scheduler started");
 }
 
+/**
+ * Finds schedules matching the current HH:MM, creates a pending dose_log
+ * for each (if one doesn't already exist for today), and sends a reminder email.
+ */
 function createPendingDoses() {
   const now = new Date();
   const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
@@ -63,7 +76,7 @@ function createPendingDoses() {
   for (const { schedule, med, user } of activeSchedules) {
     const scheduledAt = `${todayDate}T${schedule.timeOfDay}:00`;
 
-    // Check if dose log already exists for this schedule + today
+    // Prevent duplicate dose logs for the same schedule + date
     const existing = db
       .select()
       .from(doseLogs)
@@ -95,6 +108,7 @@ function createPendingDoses() {
   }
 }
 
+// Flip any "pending" dose logs older than 2 hours to "missed" (no pill decrement)
 function sweepMissedDoses() {
   const twoHoursAgo = new Date();
   twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
@@ -110,6 +124,7 @@ function sweepMissedDoses() {
     .run();
 }
 
+// Alert users when any medication has <= refillThresholdDays of pills left
 function checkRefills() {
   const medsWithUsers = db
     .select({

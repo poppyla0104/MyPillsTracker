@@ -1,3 +1,9 @@
+/**
+ * API client for the MedReminder backend.
+ * Wraps fetch with JWT auth header injection and typed response handling.
+ * All API methods return typed promises matching the backend response shapes.
+ */
+
 const BASE = "/api";
 
 function getToken(): string | null {
@@ -12,6 +18,7 @@ export function clearToken() {
   localStorage.removeItem("token");
 }
 
+// Generic fetch wrapper that attaches the JWT and handles error responses
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -36,6 +43,7 @@ async function request<T>(
   return data;
 }
 
+// Typed API methods matching each backend endpoint
 export const api = {
   register: (body: { email: string; name: string; password: string }) =>
     request<{ token: string; user: { id: number; email: string; name: string } }>(
@@ -97,6 +105,8 @@ export const api = {
   getRefills: () =>
     request<Medication[]>("/doses/refills"),
 };
+
+// --- Type definitions matching the backend schema ---
 
 export interface Medication {
   id: number;

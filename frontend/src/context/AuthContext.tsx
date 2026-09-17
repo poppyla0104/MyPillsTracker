@@ -1,3 +1,9 @@
+/**
+ * Authentication context provider.
+ * Persists user session (JWT + user info) to localStorage so it
+ * survives page reloads. Provides login/logout to all child components.
+ */
+
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { setToken, clearToken } from "../api/client";
 

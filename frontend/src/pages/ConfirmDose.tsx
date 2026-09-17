@@ -1,3 +1,9 @@
+/**
+ * Email confirmation landing page.
+ * When a user clicks "Mark as Taken" in a reminder email, this page
+ * auto-confirms the dose and shows a success/error message.
+ */
+
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api/client";

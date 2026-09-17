@@ -1,3 +1,9 @@
+/**
+ * Medication CRUD routes.
+ * All routes require authentication. Medications are scoped to the logged-in user.
+ * Deletes are soft (set active=false) so dose history is preserved.
+ */
+
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "../db/index.js";
@@ -8,6 +14,7 @@ import { authMiddleware, AuthRequest } from "../middleware/auth.js";
 const router = Router();
 router.use(authMiddleware);
 
+// Validation: creating a medication requires at least one schedule entry
 const createMedSchema = z.object({
   name: z.string().min(1),
   dosage: z.string().min(1),
@@ -33,6 +40,7 @@ const refillSchema = z.object({
   newCount: z.number().int().min(1),
 });
 
+// GET /api/medications - list all active medications for the user
 router.get("/", (req: AuthRequest, res) => {
   const meds = db
     .select()
@@ -47,6 +55,7 @@ router.get("/", (req: AuthRequest, res) => {
   res.json(meds);
 });
 
+// GET /api/medications/:id - medication detail with schedules and recent dose logs
 router.get("/:id", (req: AuthRequest, res) => {
   const med = db
     .select()
@@ -81,6 +90,7 @@ router.get("/:id", (req: AuthRequest, res) => {
   res.json({ ...med, schedules: medSchedules, recentLogs });
 });
 
+// POST /api/medications - create a medication and its schedule rows
 router.post("/", (req: AuthRequest, res) => {
   const parsed = createMedSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -91,6 +101,7 @@ router.post("/", (req: AuthRequest, res) => {
   const { name, dosage, frequency, totalPillCount, schedules: scheduleList } =
     parsed.data;
 
+  // remainingPillCount starts equal to the total (full bottle)
   const med = db
     .insert(medications)
     .values({
@@ -115,6 +126,7 @@ router.post("/", (req: AuthRequest, res) => {
   res.status(201).json({ ...med, schedules: createdSchedules });
 });
 
+// PUT /api/medications/:id - update name, dosage, or active status
 router.put("/:id", (req: AuthRequest, res) => {
   const parsed = updateMedSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -148,6 +160,7 @@ router.put("/:id", (req: AuthRequest, res) => {
   res.json(updated);
 });
 
+// DELETE /api/medications/:id - soft-delete by setting active=false
 router.delete("/:id", (req: AuthRequest, res) => {
   const existing = db
     .select()
@@ -173,6 +186,7 @@ router.delete("/:id", (req: AuthRequest, res) => {
   res.status(204).send();
 });
 
+// POST /api/medications/:id/refill - reset pill count after pharmacy refill
 router.post("/:id/refill", (req: AuthRequest, res) => {
   const parsed = refillSchema.safeParse(req.body);
   if (!parsed.success) {

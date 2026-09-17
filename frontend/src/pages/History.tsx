@@ -1,3 +1,9 @@
+/**
+ * Dose history page with adherence statistics.
+ * Shows taken/missed counts, adherence percentage, and a filterable
+ * table of dose logs. Defaults to the last 30 days.
+ */
+
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { HistoryDose, Medication } from "../api/client";
@@ -26,6 +32,7 @@ export default function History() {
     }
   }
 
+  // Reload when the medication filter changes
   useEffect(() => {
     loadHistory();
   }, [selectedMed]);
@@ -51,6 +58,7 @@ export default function History() {
         </select>
       </div>
 
+      {/* Adherence stats cards */}
       <div className="flex gap-4">
         <div className="flex-1 bg-green-50 border border-green-200 rounded-xl p-4 text-center">
           <p className="text-2xl font-bold text-green-700">{takenCount}</p>

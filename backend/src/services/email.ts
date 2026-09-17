@@ -1,7 +1,14 @@
+/**
+ * Email notification service using Nodemailer.
+ * In development, uses Ethereal fake SMTP to capture outgoing emails
+ * without sending real mail. View sent messages at https://ethereal.email/login.
+ */
+
 import nodemailer from "nodemailer";
 
 let transporter: nodemailer.Transporter;
 
+// Create an Ethereal test account and configure the transporter
 export async function initEmail() {
   const testAccount = await nodemailer.createTestAccount();
   transporter = nodemailer.createTransport({
@@ -17,6 +24,7 @@ export async function initEmail() {
   console.log(`View sent emails at: https://ethereal.email/login`);
 }
 
+// Send a dose reminder email with a one-click "Mark as Taken" button
 export async function sendDoseReminder(
   to: string,
   medName: string,
@@ -39,6 +47,7 @@ export async function sendDoseReminder(
   console.log(`Dose reminder sent to ${to}: ${nodemailer.getTestMessageUrl(info)}`);
 }
 
+// Send a refill warning when the user's pill supply is running low
 export async function sendRefillReminder(
   to: string,
   medName: string,

@@ -1,3 +1,8 @@
+/**
+ * Registration page. Creates a new account, stores JWT, and
+ * redirects to the dashboard on success.
+ */
+
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../api/client";

@@ -1,3 +1,9 @@
+/**
+ * Dashboard page showing today's medication schedule.
+ * Displays pending/taken/missed dose cards with "Mark as Taken" buttons,
+ * a refill warnings banner, and a dose counter. Polls every 30 seconds.
+ */
+
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -29,6 +35,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Confirm a dose, then refresh refill warnings if the pill count got low
   async function handleConfirm(logId: number) {
     try {
       const result = await api.confirmDose(logId);
@@ -58,6 +65,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Refill warnings banner */}
       {refills.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h3 className="font-semibold text-amber-800 mb-2">Refill Needed</h3>

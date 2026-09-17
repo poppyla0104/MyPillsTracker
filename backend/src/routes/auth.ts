@@ -1,3 +1,8 @@
+/**
+ * Authentication routes: user registration and login.
+ * Passwords are hashed with bcrypt. Successful auth returns a JWT.
+ */
+
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -19,6 +24,7 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
+// POST /api/auth/register - create a new user account
 router.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -52,6 +58,7 @@ router.post("/register", async (req, res) => {
   });
 });
 
+// POST /api/auth/login - authenticate and return JWT
 router.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {

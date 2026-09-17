@@ -1,3 +1,9 @@
+/**
+ * Medication detail page.
+ * Shows a pill count progress bar (green/amber/red), schedule list,
+ * recent dose history, and actions to refill or deactivate the medication.
+ */
+
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -19,6 +25,7 @@ export default function MedDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // Reset pill count after a pharmacy refill
   async function handleRefill() {
     if (!med) return;
     try {
@@ -38,6 +45,7 @@ export default function MedDetail() {
     }
   }
 
+  // Soft-delete: sets active=false, preserving dose history
   async function handleDelete() {
     if (!med || !confirm("Deactivate this medication?")) return;
     await api.deleteMedication(med.id);
@@ -56,6 +64,7 @@ export default function MedDetail() {
     (med.remainingPillCount / med.totalPillCount) * 100
   );
   const daysLeft = Math.floor(med.remainingPillCount / med.frequency);
+  // Color-coded progress bar: green (>50%), amber (20-50%), red (<20%)
   const barColor =
     pillPercent > 50 ? "bg-green-500" : pillPercent > 20 ? "bg-amber-500" : "bg-red-500";
 
@@ -76,6 +85,7 @@ export default function MedDetail() {
         </button>
       </div>
 
+      {/* Pill count progress bar */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700">Pills Remaining</span>
@@ -117,6 +127,7 @@ export default function MedDetail() {
         )}
       </div>
 
+      {/* Dose schedule list */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <h3 className="font-semibold text-gray-900 mb-3">Schedule</h3>
         <div className="space-y-2">
@@ -132,6 +143,7 @@ export default function MedDetail() {
         </div>
       </div>
 
+      {/* Recent dose history */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <h3 className="font-semibold text-gray-900 mb-3">Recent History</h3>
         {med.recentLogs.length === 0 ? (

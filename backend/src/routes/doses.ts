@@ -1,3 +1,9 @@
+/**
+ * Dose tracking routes: confirm doses, view today's schedule, history, and refill needs.
+ * The confirm endpoint uses an atomic transaction to update both the dose log
+ * and the medication's remaining pill count in a single operation.
+ */
+
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { doseLogs, medications, schedules } from "../db/schema.js";
@@ -7,6 +13,8 @@ import { authMiddleware, AuthRequest } from "../middleware/auth.js";
 const router = Router();
 router.use(authMiddleware);
 
+// POST /api/doses/:logId/confirm - mark a pending dose as taken
+// Atomic: updates dose status AND decrements pill count in one transaction
 router.post("/:logId/confirm", (req: AuthRequest, res) => {
   const logId = Number(req.params.logId);
 
@@ -41,6 +49,7 @@ router.post("/:logId/confirm", (req: AuthRequest, res) => {
   const newRemaining = Math.max(0, log.med.remainingPillCount - 1);
   const daysLeft = log.med.frequency > 0 ? newRemaining / log.med.frequency : 0;
 
+  // Both updates succeed or neither does
   db.transaction(() => {
     db.update(doseLogs)
       .set({ status: "taken", takenAt: now })
@@ -66,6 +75,7 @@ router.post("/:logId/confirm", (req: AuthRequest, res) => {
   });
 });
 
+// GET /api/doses/today - all dose logs for today, joined with medication and schedule info
 router.get("/today", (req: AuthRequest, res) => {
   const today = new Date().toISOString().split("T")[0];
   const startOfDay = `${today}T00:00:00`;
@@ -103,12 +113,14 @@ router.get("/today", (req: AuthRequest, res) => {
   res.json(result);
 });
 
+// GET /api/doses/history - filterable dose log history (default: last 30 days)
 router.get("/history", (req: AuthRequest, res) => {
   const { medId, from, to } = req.query;
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
+  // Date strings must match the format stored in SQLite (no trailing Z)
   const toDateStr = (d: Date) => d.toISOString().split("T")[0];
   const startDate =
     typeof from === "string" ? from : `${toDateStr(thirtyDaysAgo)}T00:00:00`;
@@ -148,6 +160,7 @@ router.get("/history", (req: AuthRequest, res) => {
   res.json(result);
 });
 
+// GET /api/doses/refills - medications where daysLeft <= 5 (need pharmacy refill)
 router.get("/refills", (req: AuthRequest, res) => {
   const meds = db
     .select()

@@ -1,3 +1,10 @@
+/**
+ * Root application component with routing configuration.
+ * Public routes: /login, /register
+ * Protected routes: /, /medications/new, /medications/:id, /history, /confirm/:logId
+ * Authenticated users are redirected away from login/register pages.
+ */
+
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Layout from "./components/Layout";
@@ -9,6 +16,7 @@ import MedDetail from "./pages/MedDetail";
 import History from "./pages/History";
 import ConfirmDose from "./pages/ConfirmDose";
 
+// Redirects unauthenticated users to the login page
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;

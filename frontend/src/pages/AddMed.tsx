@@ -1,3 +1,9 @@
+/**
+ * Add Medication form page.
+ * Dynamically generates schedule time/label rows when the frequency changes.
+ * Uses sensible defaults (08:00 morning, 12:00 afternoon, 18:00 evening, etc.).
+ */
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -17,6 +23,7 @@ export default function AddMed() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Regenerate schedule rows with sensible defaults when frequency changes
   function handleFrequencyChange(newFreq: number) {
     setFrequency(newFreq);
     const newSchedules = Array.from({ length: newFreq }, (_, i) => ({
