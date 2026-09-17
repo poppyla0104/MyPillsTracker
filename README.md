@@ -1,71 +1,40 @@
 # MyPillsTracker
 
-A full-stack medication reminder app that helps users track daily medications, confirm doses, monitor remaining pill counts, and get notified when it's time to take a dose or refill a prescription.
+A full-stack medication reminder app that helps users track daily medications, confirm doses, monitor remaining pill counts, and get reminded when it's time to refill.
 
 ## Features
 
 - **Medication management** - Add medications with name, dosage, frequency (times per day), and total pill count
 - **Scheduled dose tracking** - Automatic dose log creation at each scheduled time with pending/taken/missed status
 - **User-verified confirmation** - Pill count only decrements when the user explicitly confirms they took the dose
-- **Refill reminders** - Warns when remaining pills are running low (configurable threshold, default 5 days)
+- **Refill warnings** - Dashboard banner warns when remaining pills are running low (default threshold: 5 days)
 - **Dose history & adherence stats** - View taken/missed counts and adherence percentage, filterable by medication
-- **Email notifications** - Reminder emails with one-click "Mark as Taken" button, plus daily refill alerts
 
 ## Tech Stack
 
-**Backend:**
-- Node.js + Express + TypeScript
-- SQLite via Drizzle ORM + better-sqlite3
-- JWT authentication (bcryptjs + jsonwebtoken)
-- Zod request validation
-- node-cron for scheduled jobs
-- Nodemailer (Ethereal test accounts for dev)
+**Backend:** Node.js, Express, TypeScript, SQLite (Drizzle ORM + better-sqlite3), JWT auth, Zod validation, node-cron
 
-**Frontend:**
-- React + TypeScript (Vite)
-- Tailwind CSS
-- React Router
+**Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router
 
 ## Project Structure
 
 ```
 my-pills-tracker/
-├── backend/
-│   ├── src/
-│   │   ├── db/
-│   │   │   ├── schema.ts          # Drizzle table definitions (users, medications, schedules, dose_logs)
-│   │   │   └── index.ts           # SQLite connection with WAL mode
-│   │   ├── routes/
-│   │   │   ├── auth.ts            # POST /register, POST /login
-│   │   │   ├── medications.ts     # CRUD + refill endpoint
-│   │   │   └── doses.ts           # Confirm dose, today's schedule, history, refills
-│   │   ├── services/
-│   │   │   ├── scheduler.ts       # 3 cron jobs: dose reminders, missed sweep, refill check
-│   │   │   └── email.ts           # Nodemailer email templates
-│   │   ├── middleware/
-│   │   │   └── auth.ts            # JWT middleware
-│   │   └── index.ts               # Express entry point
-│   ├── data/                      # SQLite database file (auto-created)
-│   ├── drizzle.config.ts
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/
-│   ├── src/
-│   │   ├── api/client.ts          # Typed fetch wrapper with JWT auth
-│   │   ├── context/AuthContext.tsx # Auth state provider
-│   │   ├── components/Layout.tsx  # App shell with nav
-│   │   ├── pages/
-│   │   │   ├── Dashboard.tsx      # Today's doses + refill warnings
-│   │   │   ├── AddMed.tsx         # Add medication form
-│   │   │   ├── MedDetail.tsx      # Medication detail + pill progress bar
-│   │   │   ├── History.tsx        # Adherence stats + dose log table
-│   │   │   ├── ConfirmDose.tsx    # Email confirmation landing page
-│   │   │   ├── Login.tsx
-│   │   │   └── Register.tsx
-│   │   └── App.tsx                # Router config
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tsconfig.json
+├── backend/src/
+│   ├── db/schema.ts           # Table definitions (users, medications, schedules, dose_logs)
+│   ├── db/index.ts            # SQLite connection
+│   ├── routes/auth.ts         # Register + login
+│   ├── routes/medications.ts  # CRUD + refill
+│   ├── routes/doses.ts        # Confirm dose, today's schedule, history, refills
+│   ├── services/scheduler.ts  # Cron jobs: dose creation + missed sweep
+│   ├── middleware/auth.ts     # JWT middleware
+│   └── index.ts               # Express entry point
+├── frontend/src/
+│   ├── api/client.ts          # Typed fetch wrapper with JWT auth
+│   ├── context/AuthContext.tsx # Auth state provider
+│   ├── components/Layout.tsx  # App shell with nav
+│   ├── pages/                 # Dashboard, AddMed, MedDetail, History, Login, Register
+│   └── App.tsx                # Router config
 └── README.md
 ```
 
@@ -74,61 +43,24 @@ my-pills-tracker/
 - **Node.js >= 22** (required by better-sqlite3)
 - npm
 
-If you use nvm:
-```bash
-nvm install 22
-nvm use 22
-```
-
 ## Getting Started
 
-### 1. Install dependencies
-
 ```bash
-# Backend
-cd backend
-npm install
+# Install dependencies
+cd backend && npm install
+cd ../frontend && npm install
 
-# Frontend
-cd ../frontend
-npm install
-```
+# Set up the database
+cd ../backend && npx drizzle-kit push
 
-### 2. Set up the database
-
-```bash
-cd backend
-npx drizzle-kit push
-```
-
-This creates the SQLite database at `backend/data/med-reminder.db` with all tables.
-
-### 3. Start the backend
-
-```bash
-cd backend
+# Start the backend (port 3001)
 npx tsx src/index.ts
+
+# In another terminal, start the frontend (port 5173)
+cd frontend && npm run dev
 ```
 
-The API server starts on `http://localhost:3001`. On startup it creates an Ethereal test email account and prints the credentials to the console.
-
-### 4. Start the frontend
-
-```bash
-cd frontend
-npm run dev
-```
-
-The React app starts on `http://localhost:5173` and proxies `/api` requests to the backend.
-
-### 5. Use the app
-
-1. Open `http://localhost:5173` and register an account
-2. Add a medication with name, dosage, frequency, pill count, and schedule times
-3. When a scheduled time arrives, the cron job creates a pending dose log
-4. Click "Mark as Taken" on the dashboard to confirm (decrements pill count)
-5. View adherence stats on the History page
-6. When pills run low, a refill warning banner appears on the dashboard
+Open `http://localhost:5173`, register an account, and add your first medication.
 
 ## API Endpoints
 
@@ -137,7 +69,7 @@ The React app starts on `http://localhost:5173` and proxies `/api` requests to t
 | POST | `/api/auth/register` | Create account |
 | POST | `/api/auth/login` | Login, returns JWT |
 | GET | `/api/medications` | List active medications |
-| GET | `/api/medications/:id` | Medication detail + schedules + logs |
+| GET | `/api/medications/:id` | Detail + schedules + logs |
 | POST | `/api/medications` | Create medication + schedules |
 | PUT | `/api/medications/:id` | Update medication |
 | DELETE | `/api/medications/:id` | Soft-delete (deactivate) |
@@ -149,17 +81,13 @@ The React app starts on `http://localhost:5173` and proxies `/api` requests to t
 
 ## How Dose Tracking Works
 
-1. **Scheduler creates pending doses** - Every minute, the cron job checks if any schedule's `timeOfDay` matches the current time. If so, it creates a `pending` dose log and sends a reminder email.
+1. **Scheduler creates pending doses** - Every minute, the cron job checks if any schedule's `timeOfDay` matches now. If so, it creates a `pending` dose log.
 
-2. **User confirms** - The user clicks "Mark as Taken" on the dashboard (or the button in the email). This triggers an atomic SQLite transaction that sets the log status to `taken` and decrements the medication's `remainingPillCount`.
+2. **User confirms** - The user clicks "Mark as Taken" on the dashboard. An atomic SQLite transaction sets the log to `taken` and decrements `remainingPillCount`.
 
-3. **Missed dose sweep** - Every 15 minutes, another cron job finds pending doses older than 2 hours and marks them as `missed`. No pill count is decremented for missed doses.
+3. **Missed dose sweep** - Every 15 minutes, pending doses older than 2 hours are marked `missed`. No pill decrement.
 
-4. **Refill alerts** - Daily at 9 AM, the scheduler calculates `daysLeft = remainingPillCount / frequency`. If `daysLeft <= refillThresholdDays` (default 5), it sends a refill reminder email. The dashboard also shows a warning banner.
-
-## Email (Development)
-
-In dev mode, emails are sent to an Ethereal fake SMTP account. No real emails are delivered. View captured emails at https://ethereal.email/login using the credentials printed to the backend console on startup.
+4. **Refill warnings** - The dashboard checks `remainingPillCount / frequency` and shows a warning banner when the supply is running low.
 
 ## Environment Variables
 
@@ -167,7 +95,7 @@ In dev mode, emails are sent to an Ethereal fake SMTP account. No real emails ar
 |----------|---------|-------------|
 | `PORT` | `3001` | Backend server port |
 | `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing secret |
-| `FRONTEND_URL` | `http://localhost:5173` | Used in email confirmation links |
+| `FRONTEND_URL` | `http://localhost:5173` | Frontend origin for CORS |
 
 ## License
 

@@ -21,7 +21,6 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
-    "nodemailer": "^10.0.10",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -32,7 +31,6 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.3",
     "@types/node-cron": "^3.0.11",
-    "@types/nodemailer": "^8.0.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
