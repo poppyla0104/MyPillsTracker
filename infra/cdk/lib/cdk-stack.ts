@@ -86,6 +86,9 @@ export class MedreminderStack extends cdk.Stack {
 
     const role = new iam.Role(this, 'EC2Role', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'),
+      ],
     });
     jwtSecret.grantRead(role);
 
@@ -117,6 +120,15 @@ export class MedreminderStack extends cdk.Stack {
       'pm2 startup systemd -u ec2-user --hp /home/ec2-user',
       'pm2 save',
       'chown -R ec2-user:ec2-user /home/ec2-user/app',
+      'yum install -y amazon-cloudwatch-agent',
+      `cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json <<'CWEOF'`,
+      '{"logs":{"logs_collected":{"files":{"collect_list":[',
+      '{"file_path":"/home/ec2-user/.pm2/logs/medreminder-out.log","log_group_name":"/poppillztracker/backend","log_stream_name":"{instance_id}/stdout"},',
+      '{"file_path":"/home/ec2-user/.pm2/logs/medreminder-error.log","log_group_name":"/poppillztracker/backend","log_stream_name":"{instance_id}/stderr"},',
+      '{"file_path":"/var/log/cloud-init-output.log","log_group_name":"/poppillztracker/cloud-init","log_stream_name":"{instance_id}"}',
+      ']}}}}',
+      'CWEOF',
+      '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json -s',
     );
 
     const instance = new ec2.Instance(this, 'EC2Instance', {

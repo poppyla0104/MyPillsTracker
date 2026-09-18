@@ -16,7 +16,7 @@ A full-stack medication reminder app that helps users track daily medications, c
 
 **Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router
 
-**Infrastructure:** AWS (EC2 + RDS PostgreSQL + S3 + CloudFront), deployable via CloudFormation or CDK
+**Infrastructure:** AWS (EC2 + RDS PostgreSQL + S3 + CloudFront + CloudWatch), deployable via CloudFormation or CDK
 
 ## Project Structure
 
@@ -42,7 +42,7 @@ my-pills-tracker/
 │   ├── deploy.sh              # CloudFormation deploy script
 │   ├── deploy-frontend.sh     # Build + upload frontend to S3
 │   └── cdk/                   # AWS CDK app (TypeScript)
-│       ├── bin/cdk.ts         # CDK entry point
+│       ├── lib/cdk.ts         # CDK entry point
 │       ├── lib/cdk-stack.ts   # Stack definition
 │       └── deploy.sh          # CDK deploy script
 └── README.md
@@ -103,17 +103,21 @@ Two deployment options are available. Both provision the same resources:
 | RDS PostgreSQL | db.t3.micro | 750 hrs/mo for 12 months |
 | S3 | Frontend hosting | 5 GB free |
 | CloudFront | CDN + HTTPS | 1M requests/mo free |
+| CloudWatch | Logging | 5 GB ingestion + 5 GB storage free |
+| Secrets Manager | JWT secret | $0.40/mo (no free tier) |
 
 ### Prerequisites (both options)
 
 1. AWS CLI configured (`aws configure`)
 2. An EC2 key pair created in your target region (default: us-east-2)
 
+The JWT secret is auto-generated and stored in AWS Secrets Manager. No need to provide one.
+
 ### Option A: CloudFormation (YAML template)
 
 ```bash
 cd infra
-./deploy.sh <key-pair-name> <db-password> <jwt-secret>
+./deploy.sh <key-pair-name> <db-password>
 ```
 
 ### Option B: CDK (TypeScript)
@@ -126,10 +130,10 @@ npx cdk bootstrap aws://<account-id>/us-east-2
 
 # Deploy
 cd infra/cdk
-./deploy.sh <key-pair-name> <db-password> <jwt-secret>
+./deploy.sh <key-pair-name> <db-password>
 ```
 
-### Deploy the frontend (both options)
+### Deploy the frontend
 
 After the infrastructure is up, build and upload the React app:
 
@@ -140,14 +144,122 @@ cd infra
 
 The scripts output the CloudFront URL, EC2 IP, and RDS endpoint.
 
+### Stack management
+
+**Check stack status:**
+```bash
+aws cloudformation describe-stacks \
+  --stack-name poppillztracker \
+  --region us-east-2 \
+  --query "Stacks[0].StackStatus" \
+  --output text
+```
+
+**View stack outputs (URLs, IPs):**
+```bash
+aws cloudformation describe-stacks \
+  --stack-name poppillztracker \
+  --region us-east-2 \
+  --query "Stacks[0].Outputs" \
+  --output table
+```
+
+**View failure events (if deploy fails):**
+```bash
+aws cloudformation describe-stack-events \
+  --stack-name poppillztracker \
+  --region us-east-2 \
+  --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+  --output table
+```
+
+**Delete the stack:**
+```bash
+# Empty the S3 bucket first (required before delete)
+aws s3 rm s3://poppillztracker-frontend-<account-id> --recursive
+
+# Delete the stack
+aws cloudformation delete-stack \
+  --stack-name poppillztracker \
+  --region us-east-2
+
+# Wait for deletion to complete
+aws cloudformation wait stack-delete-complete \
+  --stack-name poppillztracker \
+  --region us-east-2
+```
+
+**Fix a stuck rollback (e.g. if EC2 was manually terminated):**
+```bash
+aws cloudformation continue-update-rollback \
+  --stack-name poppillztracker \
+  --region us-east-2 \
+  --resources-to-skip EC2Instance
+```
+
+**Redeploy after delete:**
+```bash
+cd infra
+./deploy.sh <key-pair-name> <db-password>
+./deploy-frontend.sh
+```
+
+### Viewing logs (CloudWatch)
+
+Backend application logs and EC2 startup logs are shipped to CloudWatch automatically.
+
+| Log Group | Content |
+|-----------|---------|
+| `/poppillztracker/backend` | App stdout and stderr (requests, errors, scheduler) |
+| `/poppillztracker/cloud-init` | EC2 UserData startup logs |
+
+**Tail logs in real time:**
+```bash
+aws logs tail /poppillztracker/backend --follow --region us-east-2
+```
+
+**View recent logs:**
+```bash
+aws logs tail /poppillztracker/backend --since 1h --region us-east-2
+```
+
+**View startup logs (useful for debugging deploy failures):**
+```bash
+aws logs tail /poppillztracker/cloud-init --region us-east-2
+```
+
+You can also view logs in the AWS Console under **CloudWatch > Log groups**.
+
+### Custom domain
+
+To use a custom domain (e.g. `www.poppillztracker.com`):
+
+1. Request an ACM certificate in **us-east-1** (required for CloudFront):
+   ```bash
+   aws acm request-certificate \
+     --domain-name poppillztracker.com \
+     --subject-alternative-names "*.poppillztracker.com" \
+     --validation-method DNS \
+     --region us-east-1
+   ```
+
+2. Add the DNS validation CNAME to your domain registrar
+
+3. After validation, add the domain as a CloudFront alternate name and attach the certificate
+
+4. Add DNS records at your registrar:
+   - `CNAME www -> <cloudfront-distribution>.cloudfront.net`
+   - `URL Redirect @ -> https://www.poppillztracker.com` (for apex domain)
+
 ### Architecture
 
 ```
 Users -> CloudFront -> S3 (React frontend)
                     -> EC2:3001 (Express API) -> RDS PostgreSQL
+                                              -> CloudWatch Logs
 ```
 
-CloudFront serves the React build from S3 and proxies `/api/*` requests to the EC2 backend. RDS sits in a private subnet, accessible only from EC2.
+CloudFront serves the React build from S3 and proxies `/api/*` requests to the EC2 backend. RDS sits in a private subnet, accessible only from EC2. The CloudWatch agent on EC2 ships application and startup logs.
 
 ## API Endpoints
 
@@ -182,7 +294,7 @@ CloudFront serves the React build from S3 and proxies `/api/*` requests to the E
 |----------|---------|-------------|
 | `PORT` | `3001` | Backend server port |
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/medreminder` | PostgreSQL connection string |
-| `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing secret |
+| `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing secret (auto-generated in prod via Secrets Manager) |
 | `FRONTEND_URL` | `http://localhost:5173` | Frontend origin for CORS |
 
 ## License
