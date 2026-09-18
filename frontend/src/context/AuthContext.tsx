@@ -4,7 +4,7 @@
  * survives page reloads. Provides login/logout to all child components.
  */
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { setToken, clearToken } from "../api/client";
 
 interface User {

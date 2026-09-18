@@ -2,6 +2,8 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Construct } from 'constructs';
@@ -22,11 +24,14 @@ export class MedreminderStack extends cdk.Stack {
       description: 'PostgreSQL master password (min 8 characters)',
     });
 
-    const jwtSecret = new cdk.CfnParameter(this, 'JWTSecret', {
-      type: 'String',
-      noEcho: true,
-      minLength: 16,
-      description: 'Secret key for signing JWT tokens',
+    // --- JWT Secret (auto-generated, stored in Secrets Manager) ---
+    const jwtSecret = new secretsmanager.Secret(this, 'JWTSecret', {
+      secretName: 'poppillztracker/jwt-secret',
+      description: 'JWT signing secret for MyPillsTracker',
+      generateSecretString: {
+        passwordLength: 64,
+        excludePunctuation: true,
+      },
     });
 
     // --- VPC ---
@@ -79,20 +84,26 @@ export class MedreminderStack extends cdk.Stack {
     // --- EC2 Instance ---
     const ami = ec2.MachineImage.latestAmazonLinux2023();
 
+    const role = new iam.Role(this, 'EC2Role', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+    });
+    jwtSecret.grantRead(role);
+
     const userData = ec2.UserData.forLinux();
     userData.addCommands(
       'set -e',
       'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
-      'yum install -y nodejs git',
+      'yum install -y nodejs git jq',
       'cd /home/ec2-user',
       'git clone https://github.com/poppyla0104/MyPillsTracker.git app',
       'cd app',
       'git checkout feature/medication-reminder-app',
       'cd backend',
-      'npm install --production',
+      'npm install',
+      `JWT_VAL=$(aws secretsmanager get-secret-value --secret-id ${jwtSecret.secretName} --region ${this.region} --query SecretString --output text)`,
       `cat > .env <<ENVEOF`,
       `DATABASE_URL=postgresql://medreminder:${dbPassword.valueAsString}@${database.dbInstanceEndpointAddress}:${database.dbInstanceEndpointPort}/medreminder`,
-      `JWT_SECRET=${jwtSecret.valueAsString}`,
+      'JWT_SECRET=$JWT_VAL',
       'PORT=3001',
       'FRONTEND_URL=*',
       'ENVEOF',
@@ -116,12 +127,13 @@ export class MedreminderStack extends cdk.Stack {
       securityGroup: ec2Sg,
       keyPair: ec2.KeyPair.fromKeyPairName(this, 'KeyPair', keyPairName.valueAsString),
       userData,
+      role,
     });
     instance.node.addDependency(database);
 
     // --- S3 + CloudFront for Frontend ---
     const bucket = new s3.Bucket(this, 'FrontendBucket', {
-      bucketName: `medreminder-frontend-${this.account}`,
+      bucketName: `poppillztracker-frontend-${this.account}`,
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html',
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -172,6 +184,10 @@ export class MedreminderStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'FrontendBucketName', {
       value: bucket.bucketName,
       description: 'S3 bucket for deploying frontend builds',
+    });
+    new cdk.CfnOutput(this, 'JWTSecretArn', {
+      value: jwtSecret.secretArn,
+      description: 'Secrets Manager ARN for the JWT secret',
     });
   }
 }

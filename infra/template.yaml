@@ -17,12 +17,6 @@ Parameters:
     Default: medreminder
     Description: PostgreSQL master username
 
-  JWTSecret:
-    Type: String
-    NoEcho: true
-    MinLength: 16
-    Description: Secret key for signing JWT tokens
-
   LatestAMI:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
@@ -151,6 +145,45 @@ Resources:
         - Key: Name
           Value: medreminder-rds-sg
 
+  # --- JWT Secret (auto-generated) ---
+
+  JWTSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: poppillztracker/jwt-secret
+      Description: JWT signing secret for MyPillsTracker
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  # --- IAM Role for EC2 (read JWT secret) ---
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadJWTSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref JWTSecret
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
   # --- RDS PostgreSQL ---
 
   DBSubnetGroup:
@@ -195,6 +228,7 @@ Resources:
       KeyName: !Ref KeyPairName
       ImageId: !Ref LatestAMI
       SubnetId: !Ref PublicSubnet1
+      IamInstanceProfile: !Ref EC2InstanceProfile
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
       UserData:
@@ -204,7 +238,10 @@ Resources:
 
           # Install Node.js 22
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-          yum install -y nodejs git
+          yum install -y nodejs git jq
+
+          # Fetch JWT secret from Secrets Manager
+          JWT_VAL=$(aws secretsmanager get-secret-value --secret-id poppillztracker/jwt-secret --region ${AWS::Region} --query SecretString --output text)
 
           # Clone the repo and checkout the feature branch
           cd /home/ec2-user
@@ -212,14 +249,14 @@ Resources:
           cd app
           git checkout feature/medication-reminder-app
 
-          # Install backend dependencies
+          # Install backend dependencies (include devDeps for drizzle-kit push)
           cd backend
-          npm install --production
+          npm install
 
           # Write environment file
-          cat > .env <<'ENVEOF'
+          cat > .env <<ENVEOF
           DATABASE_URL=postgresql://${DBUsername}:${DBPassword}@${Database.Endpoint.Address}:${Database.Endpoint.Port}/medreminder
-          JWT_SECRET=${JWTSecret}
+          JWT_SECRET=$JWT_VAL
           PORT=3001
           FRONTEND_URL=*
           ENVEOF
@@ -249,7 +286,7 @@ Resources:
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "medreminder-frontend-${AWS::AccountId}"
+      BucketName: !Sub "poppillztracker-frontend-${AWS::AccountId}"
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: index.html

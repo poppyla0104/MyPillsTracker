@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-STACK_NAME="medreminder"
+STACK_NAME="poppillztracker"
 REGION="${AWS_REGION:-us-east-2}"
 PROJECT_ROOT="$(dirname "$0")/.."
 
