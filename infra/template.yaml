@@ -23,6 +23,11 @@ Parameters:
     MinLength: 16
     Description: Secret key for signing JWT tokens
 
+  LatestAMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI (auto-resolved per region)
+
 Resources:
   # --- VPC & Networking ---
 
@@ -161,7 +166,7 @@ Resources:
     Properties:
       DBInstanceIdentifier: medreminder-db
       Engine: postgres
-      EngineVersion: "16.4"
+      EngineVersion: "16.15"
       DBInstanceClass: db.t3.micro
       AllocatedStorage: 20
       StorageType: gp2
@@ -170,23 +175,25 @@ Resources:
       DBName: medreminder
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
-      DBSubnetGroup: !Ref DBSubnetGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
       PubliclyAccessible: false
-      BackupRetentionPeriod: 7
+      BackupRetentionPeriod: 1
       MultiAZ: false
       Tags:
         - Key: Name
           Value: medreminder-db
 
   # --- EC2 Instance ---
+  # CORS is set to * because all user traffic goes through CloudFront.
+  # EC2 must not reference CloudFrontDistribution to avoid a circular dependency.
 
   EC2Instance:
     Type: AWS::EC2::Instance
     DependsOn: Database
     Properties:
-      InstanceType: t2.micro
+      InstanceType: t3.micro
       KeyName: !Ref KeyPairName
-      ImageId: !FindInMap [RegionAMI, !Ref "AWS::Region", AMI]
+      ImageId: !Ref LatestAMI
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
@@ -199,22 +206,23 @@ Resources:
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           yum install -y nodejs git
 
-          # Clone the repo
+          # Clone the repo and checkout the feature branch
           cd /home/ec2-user
           git clone https://github.com/poppyla0104/MyPillsTracker.git app
           cd app
+          git checkout feature/medication-reminder-app
 
-          # Build backend
+          # Install backend dependencies
           cd backend
           npm install --production
 
           # Write environment file
-          cat > .env <<EOF
+          cat > .env <<'ENVEOF'
           DATABASE_URL=postgresql://${DBUsername}:${DBPassword}@${Database.Endpoint.Address}:${Database.Endpoint.Port}/medreminder
           JWT_SECRET=${JWTSecret}
           PORT=3001
-          FRONTEND_URL=https://${CloudFrontDistribution.DomainName}
-          EOF
+          FRONTEND_URL=*
+          ENVEOF
 
           # Run database migrations
           npx drizzle-kit push
@@ -227,9 +235,11 @@ Resources:
           # Install PM2 and start the backend
           npm install -g pm2
           cd ../backend
-          pm2 start "npx tsx src/index.ts" --name medreminder --env-file .env
+          pm2 start "npx tsx src/index.ts" --name medreminder
           pm2 startup systemd -u ec2-user --hp /home/ec2-user
           pm2 save
+
+          chown -R ec2-user:ec2-user /home/ec2-user/app
       Tags:
         - Key: Name
           Value: medreminder-ec2
@@ -249,21 +259,6 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
-  FrontendBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref FrontendBucket
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub "${FrontendBucket.Arn}/*"
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
-
   CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -280,13 +275,11 @@ Resources:
         Enabled: true
         DefaultRootObject: index.html
         Origins:
-          # Frontend static files from S3
           - Id: S3Origin
             DomainName: !GetAtt FrontendBucket.RegionalDomainName
             OriginAccessControlId: !Ref CloudFrontOAC
             S3OriginConfig:
               OriginAccessIdentity: ""
-          # Backend API on EC2
           - Id: APIOrigin
             DomainName: !GetAtt EC2Instance.PublicDnsName
             CustomOriginConfig:
@@ -300,7 +293,6 @@ Resources:
           ForwardedValues:
             QueryString: false
         CacheBehaviors:
-          # Route /api/* to the EC2 backend
           - PathPattern: /api/*
             TargetOriginId: APIOrigin
             ViewerProtocolPolicy: redirect-to-https
@@ -314,7 +306,6 @@ Resources:
             DefaultTTL: 0
             MinTTL: 0
             MaxTTL: 0
-        # SPA: serve index.html for all 404s so React Router works
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
@@ -323,17 +314,22 @@ Resources:
             ResponseCode: 200
             ResponsePagePath: /index.html
 
-Mappings:
-  # Amazon Linux 2023 AMIs (free-tier eligible)
-  RegionAMI:
-    us-east-1:
-      AMI: ami-0c02fb55956c7d316
-    us-east-2:
-      AMI: ami-089a545a9ed9893b6
-    us-west-1:
-      AMI: ami-04b6c97b14c54de18
-    us-west-2:
-      AMI: ami-0892d3c7ee96c0bf7
+  # Bucket policy created after CloudFront to avoid circular dependency
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: CloudFrontDistribution
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
 Outputs:
   WebsiteURL:

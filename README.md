@@ -16,7 +16,7 @@ A full-stack medication reminder app that helps users track daily medications, c
 
 **Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router
 
-**Infrastructure:** AWS CloudFormation (EC2 + RDS PostgreSQL + S3 + CloudFront)
+**Infrastructure:** AWS (EC2 + RDS PostgreSQL + S3 + CloudFront), deployable via CloudFormation or CDK
 
 ## Project Structure
 
@@ -38,9 +38,13 @@ my-pills-tracker/
 │   ├── pages/                 # Dashboard, AddMed, MedDetail, History, Login, Register
 │   └── App.tsx                # Router config
 ├── infra/
-│   ├── template.yaml          # CloudFormation template (VPC, EC2, RDS, S3, CloudFront)
-│   ├── deploy.sh              # Deploy infrastructure
-│   └── deploy-frontend.sh     # Build + upload frontend to S3
+│   ├── template.yaml          # CloudFormation template
+│   ├── deploy.sh              # CloudFormation deploy script
+│   ├── deploy-frontend.sh     # Build + upload frontend to S3
+│   └── cdk/                   # AWS CDK app (TypeScript)
+│       ├── bin/cdk.ts         # CDK entry point
+│       ├── lib/cdk-stack.ts   # Stack definition
+│       └── deploy.sh          # CDK deploy script
 └── README.md
 ```
 
@@ -91,31 +95,50 @@ Open `http://localhost:5173`, register an account, and add your first medication
 
 ## AWS Deployment
 
-The `infra/` directory contains a CloudFormation template that provisions:
+Two deployment options are available. Both provision the same resources:
 
 | Resource | Type | Free Tier |
 |----------|------|-----------|
-| EC2 | t2.micro | 750 hrs/mo for 12 months |
+| EC2 | t3.micro | 750 hrs/mo for 12 months |
 | RDS PostgreSQL | db.t3.micro | 750 hrs/mo for 12 months |
 | S3 | Frontend hosting | 5 GB free |
 | CloudFront | CDN + HTTPS | 1M requests/mo free |
 
-### Deploy
+### Prerequisites (both options)
 
-1. **Create an EC2 key pair** in the AWS console (for SSH access)
+1. AWS CLI configured (`aws configure`)
+2. An EC2 key pair created in your target region (default: us-east-2)
 
-2. **Deploy the stack:**
+### Option A: CloudFormation (YAML template)
+
 ```bash
 cd infra
 ./deploy.sh <key-pair-name> <db-password> <jwt-secret>
 ```
 
-3. **Deploy the frontend:**
+### Option B: CDK (TypeScript)
+
+Requires Node >= 18. If using nvm, the script auto-switches to Node 22.
+
 ```bash
+# First time only: bootstrap CDK in your account/region
+npx cdk bootstrap aws://<account-id>/us-east-2
+
+# Deploy
+cd infra/cdk
+./deploy.sh <key-pair-name> <db-password> <jwt-secret>
+```
+
+### Deploy the frontend (both options)
+
+After the infrastructure is up, build and upload the React app:
+
+```bash
+cd infra
 ./deploy-frontend.sh
 ```
 
-The script outputs the CloudFront URL, EC2 IP, and RDS endpoint.
+The scripts output the CloudFront URL, EC2 IP, and RDS endpoint.
 
 ### Architecture
 

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 STACK_NAME="medreminder"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-east-2}"
 PROJECT_ROOT="$(dirname "$0")/.."
 
 # Get bucket name and distribution ID from CloudFormation outputs

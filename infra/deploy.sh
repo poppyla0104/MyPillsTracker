@@ -6,7 +6,7 @@ set -euo pipefail
 
 STACK_NAME="medreminder"
 TEMPLATE="$(dirname "$0")/template.yaml"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-east-2}"
 
 if [ $# -lt 3 ]; then
   echo "Usage: $0 <key-pair-name> <db-password> <jwt-secret>"

@@ -6,3 +6,4 @@ dist/
 backend/data/
 .env
 .DS_Store
+cdk.out/
